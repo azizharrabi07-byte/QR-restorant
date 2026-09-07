@@ -1,5 +1,5 @@
 import React from "react";
-import { Smartphone, Eye, RefreshCw, UserCheck, LogIn, CloudUpload, LogOut, Grid } from "lucide-react";
+import { Smartphone, Eye, RefreshCw, UserCheck, LogIn, CloudUpload, LogOut, Grid, UserPlus } from "lucide-react";
 import { User } from "@supabase/supabase-js";
 import { OnboardingStep, RestaurantProfile } from "../../types";
 import { Button } from "../ui/Button";
@@ -18,6 +18,7 @@ export interface NavbarProps {
   isPublishing?: boolean;
   onOpenWorkerDashboard?: () => void;
   onOpenCustomerMenu?: () => void;
+  onOpenInviteWorker?: () => void;
 }
 
 export function Navbar({
@@ -34,6 +35,7 @@ export function Navbar({
   isPublishing = false,
   onOpenWorkerDashboard,
   onOpenCustomerMenu,
+  onOpenInviteWorker,
 }: NavbarProps) {
   // Extract initials
   const initials = (profile.name || "Maitre D")
@@ -147,6 +149,18 @@ export function Navbar({
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span>Kitchen Screen</span>
+            </button>
+          )}
+
+          {onOpenInviteWorker && (
+            <button
+              type="button"
+              onClick={onOpenInviteWorker}
+              className="inline-flex items-center gap-1.5 text-xs text-white/90 hover:text-white px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors cursor-pointer border border-white/10"
+              title="Invite Worker / Staff Pass"
+            >
+              <UserPlus className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Invite Worker</span>
             </button>
           )}
 

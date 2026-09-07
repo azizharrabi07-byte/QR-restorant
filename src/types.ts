@@ -106,3 +106,18 @@ export interface CustomerCartItem {
   product: Product;
   quantity: number;
 }
+
+export type WorkerRole = "cashier" | "kitchen" | "manager";
+
+export interface WorkerInvite {
+  id: string;
+  restaurant_id: string;
+  invite_token: string;
+  role: WorkerRole;
+  is_used: boolean;
+  used_by: string | null;
+  expires_at: string;
+  created_at: string;
+  used_by_email?: string;
+  used_by_name?: string;
+}

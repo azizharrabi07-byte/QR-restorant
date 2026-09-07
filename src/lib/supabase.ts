@@ -39,6 +39,8 @@ export function isValidUUID(str: string): boolean {
   return uuidRegex.test(str);
 }
 
+export const ENABLE_GOOGLE_AUTH = false;
+
 // Authentication API
 export async function getSupabaseUser(): Promise<User | null> {
   try {
@@ -60,41 +62,144 @@ export function onAuthStateChange(callback: (user: User | null) => void) {
   });
 }
 
-export async function signInOwner(email: string, password: string): Promise<{ user: User | null; error: string | null }> {
+/**
+ * Google OAuth Sign In (retained behind ENABLE_GOOGLE_AUTH feature flag)
+ */
+export async function signInWithGoogle(): Promise<{ error: string | null }> {
   try {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { user: null, error: error.message };
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+      },
+    });
+    if (error) return { error: error.message };
+    return { error: null };
+  } catch (err: any) {
+    return { error: err?.message || "Failed to initiate Google Sign In" };
+  }
+}
+
+export async function signInOwner(
+  email: string,
+  password: string
+): Promise<{ user: User | null; error: string | null }> {
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password,
+    });
+
+    if (error) {
+      const msg = error.message.toLowerCase();
+      if (
+        msg.includes("invalid login credentials") ||
+        msg.includes("invalid_grant")
+      ) {
+        return {
+          user: null,
+          error: "Invalid email or password. Please check your credentials.",
+        };
+      }
+      return { user: null, error: error.message };
+    }
+
     return { user: data.user, error: null };
   } catch (err: any) {
     return { user: null, error: err?.message || "Failed to sign in" };
   }
 }
 
-export async function signUpOwner(email: string, password: string): Promise<{ user: User | null; error: string | null }> {
+export async function signUpOwner(
+  email: string,
+  password: string
+): Promise<{ user: User | null; error: string | null }> {
   try {
-    // Attempt fast admin creation to avoid SMTP email rate limiting on development projects
-    const adminRes = await supabase.auth.admin.createUser({
-      email,
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Standard Supabase Auth signUp
+    const { data, error } = await supabase.auth.signUp({
+      email: cleanEmail,
       password,
-      email_confirm: true,
     });
 
-    if (adminRes.data?.user) {
-      // Auto login with the newly created account
-      const login = await supabase.auth.signInWithPassword({ email, password });
-      return { user: login.data?.user || adminRes.data.user, error: null };
+    if (error) {
+      const msg = error.message.toLowerCase();
+      if (
+        msg.includes("already registered") ||
+        msg.includes("already exists") ||
+        (error as any).code === "user_already_exists"
+      ) {
+        return {
+          user: null,
+          error: "This email is already registered. Please sign in instead.",
+        };
+      }
+
+      // If development SMTP rate limit is triggered, fallback gracefully to admin creation
+      if (
+        msg.includes("rate limit") ||
+        msg.includes("email provider") ||
+        msg.includes("over_email_send_rate_limit")
+      ) {
+        try {
+          const adminRes = await supabase.auth.admin.createUser({
+            email: cleanEmail,
+            password,
+            email_confirm: true,
+          });
+          if (adminRes.data?.user) {
+            const login = await supabase.auth.signInWithPassword({
+              email: cleanEmail,
+              password,
+            });
+            return { user: login.data?.user || adminRes.data.user, error: null };
+          }
+          if (adminRes.error) {
+            if (
+              adminRes.error.message.toLowerCase().includes("already registered") ||
+              adminRes.error.message.toLowerCase().includes("already exists")
+            ) {
+              return {
+                user: null,
+                error: "This email is already registered. Please sign in instead.",
+              };
+            }
+          }
+        } catch {
+          // Fall through to returning the original error
+        }
+      }
+
+      return { user: null, error: error.message };
     }
 
-    if (adminRes.error) {
-      // If user already exists, suggest signing in or attempt standard sign in
-      if (adminRes.error.message.toLowerCase().includes("already registered") || adminRes.error.message.toLowerCase().includes("already exists")) {
-        const login = await supabase.auth.signInWithPassword({ email, password });
-        if (login.data?.user) {
-          return { user: login.data.user, error: null };
-        }
-        return { user: null, error: "An account with this email already exists. Please sign in with your password." };
+    // When email confirmations are enabled and user already exists, Supabase returns fake user with empty identities: []
+    if (
+      data?.user &&
+      Array.isArray(data.user.identities) &&
+      data.user.identities.length === 0
+    ) {
+      return {
+        user: null,
+        error: "This email is already registered. Please sign in instead.",
+      };
+    }
+
+    if (data?.user) {
+      if (data.session) {
+        return { user: data.user, error: null };
       }
-      return { user: null, error: adminRes.error.message };
+      // Attempt immediate login with new credentials
+      const signInRes = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
+      if (signInRes.data?.user) {
+        return { user: signInRes.data.user, error: null };
+      }
+      return { user: data.user, error: null };
     }
 
     return { user: null, error: "Account creation could not be completed" };

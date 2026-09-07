@@ -10,7 +10,8 @@ import {
   Check, 
   ShieldCheck, 
   Database,
-  ExternalLink 
+  ExternalLink,
+  UserPlus
 } from "lucide-react";
 import { User } from "@supabase/supabase-js";
 import { RestaurantProfile, RestaurantTable } from "../../types";
@@ -31,6 +32,7 @@ interface StepTablesProps {
   onJumpToStep?: (step: number) => void;
   onOpenCustomerMenu?: (slug: string, token: string) => void;
   onOpenWorkerDashboard?: () => void;
+  onOpenInviteWorker?: () => void;
 }
 
 export function StepTables({
@@ -47,6 +49,7 @@ export function StepTables({
   onJumpToStep,
   onOpenCustomerMenu,
   onOpenWorkerDashboard,
+  onOpenInviteWorker,
 }: StepTablesProps) {
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
@@ -72,7 +75,19 @@ export function StepTables({
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-3 shrink-0 flex-wrap sm:flex-nowrap">
+          {onOpenInviteWorker && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onOpenInviteWorker}
+              leftIcon={<UserPlus className="w-4 h-4 text-emerald-400" />}
+              className="text-white border-white/20 hover:bg-white/10 text-xs"
+            >
+              Invite Worker
+            </Button>
+          )}
+
           {onOpenWorkerDashboard && (
             <Button
               type="button"

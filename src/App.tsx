@@ -25,11 +25,14 @@ import { OwnerAuthModal } from "./components/auth/OwnerAuthModal";
 import { PublishModal } from "./components/publish/PublishModal";
 import { CustomerMenuPage } from "./components/customer/CustomerMenuPage";
 import { WorkerOrdersDashboard } from "./components/worker/WorkerOrdersDashboard";
+import { InviteWorkerModal } from "./components/worker/InviteWorkerModal";
+import { JoinInvitePage } from "./components/worker/JoinInvitePage";
 
 export type AppRoute =
   | { type: "onboarding" }
   | { type: "customer_menu"; slug: string; qrToken: string }
-  | { type: "worker_dashboard"; restaurantId: string };
+  | { type: "worker_dashboard"; restaurantId: string }
+  | { type: "join_invite"; inviteToken: string };
 
 function parseCurrentRoute(): AppRoute {
   if (typeof window === "undefined") {
@@ -56,7 +59,16 @@ function parseCurrentRoute(): AppRoute {
     };
   }
 
-  // 2. Hash routing check fallback: #/menu/:slug/:qr_token or #/dashboard/:restaurant_id/orders
+  // Pathname check: /join/:invite_token
+  const joinMatch = path.match(/^\/join\/([^/]+)\/?$/);
+  if (joinMatch) {
+    return {
+      type: "join_invite",
+      inviteToken: decodeURIComponent(joinMatch[1]),
+    };
+  }
+
+  // 2. Hash routing check fallback: #/menu/:slug/:qr_token, #/dashboard/:restaurant_id/orders, #/join/:invite_token
   const hash = window.location.hash.replace(/^#/, "");
   const hashMenuMatch = hash.match(/^\/?menu\/([^/]+)\/([^/]+)\/?$/);
   if (hashMenuMatch) {
@@ -73,8 +85,15 @@ function parseCurrentRoute(): AppRoute {
       restaurantId: decodeURIComponent(hashDashboardMatch[1]),
     };
   }
+  const hashJoinMatch = hash.match(/^\/?join\/([^/]+)\/?$/);
+  if (hashJoinMatch) {
+    return {
+      type: "join_invite",
+      inviteToken: decodeURIComponent(hashJoinMatch[1]),
+    };
+  }
 
-  // 3. Query params check fallback: ?route=menu&slug=...&token=...
+  // 3. Query params check fallback: ?route=menu&slug=...&token=... or ?route=join&token=...
   const params = new URLSearchParams(window.location.search);
   if (params.get("route") === "menu" && params.get("slug") && (params.get("token") || params.get("qr_token"))) {
     return {
@@ -87,6 +106,18 @@ function parseCurrentRoute(): AppRoute {
     return {
       type: "worker_dashboard",
       restaurantId: params.get("restaurant_id")!,
+    };
+  }
+  if (params.get("route") === "join" && (params.get("token") || params.get("invite_token"))) {
+    return {
+      type: "join_invite",
+      inviteToken: params.get("token") || params.get("invite_token")!,
+    };
+  }
+  if (params.get("invite_token")) {
+    return {
+      type: "join_invite",
+      inviteToken: params.get("invite_token")!,
     };
   }
 
@@ -105,6 +136,7 @@ export default function App() {
   // Supabase Auth & Cloud State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [publishStepNum, setPublishStepNum] = useState(1);
   const [publishStatusText, setPublishStatusText] = useState("");
@@ -168,6 +200,13 @@ export default function App() {
     const newPath = `/dashboard/${encodeURIComponent(restaurantId)}/orders`;
     window.history.pushState({}, "", newPath);
     setRoute({ type: "worker_dashboard", restaurantId });
+    window.scrollTo(0, 0);
+  };
+
+  const navigateToJoinInvite = (inviteToken: string) => {
+    const newPath = `/join/${encodeURIComponent(inviteToken)}`;
+    window.history.pushState({}, "", newPath);
+    setRoute({ type: "join_invite", inviteToken });
     window.scrollTo(0, 0);
   };
 
@@ -315,7 +354,20 @@ export default function App() {
   }
 
   // ==========================================
-  // VIEW ROUTE 3: Owner Onboarding & Management Dashboard
+  // VIEW ROUTE 3: Join Staff Invite Page (/join/{invite_token})
+  // ==========================================
+  if (route.type === "join_invite") {
+    return (
+      <JoinInvitePage
+        inviteToken={route.inviteToken}
+        onRedirectToDashboard={(restaurantId) => navigateToWorkerDashboard(restaurantId)}
+        onNavigateHome={navigateToHome}
+      />
+    );
+  }
+
+  // ==========================================
+  // VIEW ROUTE 4: Owner Onboarding & Management Dashboard
   // ==========================================
   return (
     <div className="min-h-screen bg-[#050505] text-[#E5E5E5] flex flex-col selection:bg-white/20 selection:text-white">
@@ -337,6 +389,7 @@ export default function App() {
         isPublishing={isPublishing}
         onOpenCustomerMenu={() => navigateToCustomerMenu(profile.slug, firstTableToken)}
         onOpenWorkerDashboard={() => navigateToWorkerDashboard(activeRestaurantId)}
+        onOpenInviteWorker={() => setIsInviteModalOpen(true)}
       />
 
       {/* 6-Step Process Stepper */}
@@ -375,6 +428,7 @@ export default function App() {
             onJumpToStep={(step) => setCurrentStep(step as OnboardingStep)}
             onOpenCustomerMenu={(slug, token) => navigateToCustomerMenu(slug, token)}
             onOpenWorkerDashboard={() => navigateToWorkerDashboard(activeRestaurantId)}
+            onOpenInviteWorker={() => setIsInviteModalOpen(true)}
           />
         )}
 
@@ -457,6 +511,10 @@ export default function App() {
             handleAuthSuccess(user);
           }
         }}
+        onSignUpSuccess={() => {
+          setCurrentStep(1);
+          setIsAuthModalOpen(false);
+        }}
         primaryColor={profile.branding.primaryColor}
       />
 
@@ -480,6 +538,23 @@ export default function App() {
         onOpenWorkerDashboard={(restId) => {
           setIsPublishModalOpen(false);
           navigateToWorkerDashboard(restId);
+        }}
+      />
+
+      {/* Staff Worker Invite Modal */}
+      <InviteWorkerModal
+        isOpen={isInviteModalOpen}
+        onClose={() => setIsInviteModalOpen(false)}
+        restaurantId={syncedRestaurantId || publishResult?.restaurantId || null}
+        profile={profile}
+        currentUser={currentUser}
+        onOpenAuthModal={() => {
+          setIsInviteModalOpen(false);
+          setIsAuthModalOpen(true);
+        }}
+        onNavigateToJoin={(token) => {
+          setIsInviteModalOpen(false);
+          navigateToJoinInvite(token);
         }}
       />
     </div>

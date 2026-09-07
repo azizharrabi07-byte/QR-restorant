@@ -3,7 +3,7 @@ import { User } from "@supabase/supabase-js";
 import { Lock, Mail, UserCheck, LogOut, ArrowRight, Loader2, Sparkles, ShieldCheck } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
-import { signInOwner, signUpOwner, signOutOwner } from "../../lib/supabase";
+import { signInOwner, signUpOwner, signOutOwner, ENABLE_GOOGLE_AUTH, signInWithGoogle } from "../../lib/supabase";
 
 interface OwnerAuthModalProps {
   isOpen: boolean;
@@ -11,6 +11,7 @@ interface OwnerAuthModalProps {
   currentUser: User | null;
   onUserChanged: (user: User | null) => void;
   onAuthenticatedContinue?: () => void;
+  onSignUpSuccess?: () => void;
   primaryColor?: string;
   reasonText?: string;
 }
@@ -21,12 +22,14 @@ export function OwnerAuthModal({
   currentUser,
   onUserChanged,
   onAuthenticatedContinue,
+  onSignUpSuccess,
   primaryColor = "#D97706",
   reasonText = "Authenticate with Supabase to publish and persist your restaurant menu & tables to cloud database.",
 }: OwnerAuthModalProps) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("azizharrabi07@gmail.com");
   const [password, setPassword] = useState("Password123!");
+  const [confirmPassword, setConfirmPassword] = useState("Password123!");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -36,21 +39,47 @@ export function OwnerAuthModal({
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    if (!email.trim() || !password.trim()) {
-      setErrorMsg("Please enter both your email and password.");
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setErrorMsg("Please enter your email address.");
       return;
     }
 
+    // Validation: Invalid email check
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setErrorMsg("Please enter a valid email address.");
+      return;
+    }
+
+    if (!password) {
+      setErrorMsg("Please enter your password.");
+      return;
+    }
+
+    // Validation: Password too short
     if (password.length < 6) {
       setErrorMsg("Password must be at least 6 characters.");
       return;
+    }
+
+    // Validation: Passwords don't match (signup only)
+    if (mode === "signup") {
+      if (!confirmPassword) {
+        setErrorMsg("Please confirm your password.");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setErrorMsg("Passwords do not match.");
+        return;
+      }
     }
 
     setLoading(true);
 
     try {
       if (mode === "signin") {
-        const { user, error } = await signInOwner(email.trim(), password);
+        const { user, error } = await signInOwner(trimmedEmail, password);
         if (error) {
           setErrorMsg(error);
         } else if (user) {
@@ -62,17 +91,28 @@ export function OwnerAuthModal({
             } else {
               onClose();
             }
-          }, 600);
+          }, 500);
         }
       } else {
-        const { user, error } = await signUpOwner(email.trim(), password);
+        // Mode: signup
+        const { user, error } = await signUpOwner(trimmedEmail, password);
         if (error) {
-          setErrorMsg(error);
+          // Validation: email already registered handling
+          if (
+            error.toLowerCase().includes("already registered") ||
+            error.toLowerCase().includes("already exists")
+          ) {
+            setErrorMsg("This email is already registered. Please sign in instead.");
+          } else {
+            setErrorMsg(error);
+          }
         } else if (user) {
-          setSuccessMsg(`Account created for ${user.email}! Authenticated.`);
+          setSuccessMsg(`Account created for ${user.email}! Proceeding to Step 1...`);
           onUserChanged(user);
           setTimeout(() => {
-            if (onAuthenticatedContinue) {
+            if (onSignUpSuccess) {
+              onSignUpSuccess();
+            } else if (onAuthenticatedContinue) {
               onAuthenticatedContinue();
             } else {
               onClose();
@@ -82,6 +122,22 @@ export function OwnerAuthModal({
       }
     } catch (err: any) {
       setErrorMsg(err?.message || "An authentication error occurred.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (!ENABLE_GOOGLE_AUTH) return;
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) {
+        setErrorMsg(error);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Google sign in could not be completed.");
     } finally {
       setLoading(false);
     }
@@ -98,6 +154,7 @@ export function OwnerAuthModal({
   const setPresetCredentials = (presetEmail: string, presetPass: string) => {
     setEmail(presetEmail);
     setPassword(presetPass);
+    setConfirmPassword(presetPass);
     setErrorMsg(null);
   };
 
@@ -182,6 +239,7 @@ export function OwnerAuthModal({
                 onClick={() => {
                   setMode("signin");
                   setErrorMsg(null);
+                  setSuccessMsg(null);
                 }}
                 className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                   mode === "signin"
@@ -196,6 +254,7 @@ export function OwnerAuthModal({
                 onClick={() => {
                   setMode("signup");
                   setErrorMsg(null);
+                  setSuccessMsg(null);
                 }}
                 className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                   mode === "signup"
@@ -206,6 +265,46 @@ export function OwnerAuthModal({
                 Create Account
               </button>
             </div>
+
+            {/* Google OAuth Button - Preserved behind ENABLE_GOOGLE_AUTH feature flag */}
+            {ENABLE_GOOGLE_AUTH && (
+              <div className="space-y-3 pt-1">
+                <button
+                  type="button"
+                  id="google-owner-auth-btn"
+                  onClick={handleGoogleSignIn}
+                  disabled={loading}
+                  className="w-full py-2.5 px-4 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-white text-xs font-semibold flex items-center justify-center gap-2.5 transition-colors cursor-pointer"
+                >
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                    />
+                  </svg>
+                  <span>Continue with Google</span>
+                </button>
+
+                <div className="relative flex items-center justify-center my-2">
+                  <div className="border-t border-white/10 w-full" />
+                  <span className="bg-[#0D0D0D] px-2 text-[10px] text-white/40 uppercase tracking-wider font-mono absolute">
+                    or continue with email
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Quick-fill Helper for testing/evaluation */}
             <div className="p-3 bg-white/[0.02] border border-white/5 rounded-lg flex flex-col gap-1.5 text-xs text-white/50">
@@ -265,6 +364,26 @@ export function OwnerAuthModal({
                 />
               </div>
             </div>
+
+            {/* Confirm Password Field (Signup only) */}
+            {mode === "signup" && (
+              <div className="animate-in fade-in duration-200">
+                <label className="block text-xs font-medium text-white/70 mb-1.5">
+                  Confirm Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                    className="w-full bg-[#0A0A0A] border border-white/15 focus:border-white/40 focus:ring-1 focus:ring-white/40 rounded-lg pl-9 pr-3.5 py-2 text-sm text-white placeholder:text-white/30 outline-hidden transition-all"
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Feedback Messages */}
             {errorMsg && (
