@@ -1,0 +1,6 @@
+{
+  "name": "Restaurant Onboarding Dashboard",
+  "description": "Multi-tenant onboarding dashboard for restaurants and coffee shops to configure branding, menu categories, products, table QR management, and preview their live QR menu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
